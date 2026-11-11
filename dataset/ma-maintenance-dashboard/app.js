@@ -1,4 +1,6 @@
 const STORAGE_KEY = 'ma-flow-contracts-v1';
+const BACKUP_KEY = 'ma-flow-contracts-backup-v1';
+const SOURCE_KEY = 'ma-flow-source-v1';
 
 const seedContracts = [
   { id: 'ma-001', account: '示範客戶 A 公司', contract: '履歷填寫頁面維護 2027MA', amount: 18000, taxAmount: 18900, startDate: '2026-01-01', endDate: '2026-12-31', lastInvoiceDate: '', quoteNo: '', status: 'pending_quote', dealType: '維護保固', note: '即將到期，請準備報價。', updatedAt: '2026-11-11' },
@@ -20,6 +22,9 @@ const icons = {
   file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>',
   menu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
   download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg>',
+  upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 17V5m0 0L8 9m4-4 4 4M5 21h14"/></svg>',
+  sheet: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v5h5M9 12h7M9 16h7M9 8h2"/></svg>',
+  undo: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 7 4 12l5 5"/><path d="M5 12h9a5 5 0 1 1 0 10h-2"/></svg>',
   calendar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>',
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>',
   arrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14m-5-5 5 5-5 5"/></svg>',
@@ -39,6 +44,7 @@ const statusMeta = {
 };
 
 let contracts = loadContracts();
+let sourceMeta = loadSourceMeta();
 let activeView = 'overview';
 let currentFilter = 'all';
 
@@ -53,6 +59,11 @@ function saveContracts() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(contracts));
 }
 
+function loadSourceMeta() {
+  try { return JSON.parse(localStorage.getItem(SOURCE_KEY)) || null; }
+  catch { return null; }
+}
+
 function escapeHTML(value = '') {
   return String(value).replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
 }
@@ -65,6 +76,90 @@ function formatDate(value) {
   if (!value) return '—';
   const [year, month, day] = value.split('-');
   return `${year}/${Number(month)}/${Number(day)}`;
+}
+
+function normalizeHeader(value) {
+  return String(value || '').replace(/[\s\t\r\n]/g, '').replace(/[（）]/g, match => match === '（' ? '(' : ')');
+}
+
+function cellText(cell) {
+  if (!cell) return '';
+  if (typeof cell.text === 'string' && cell.text.trim()) return cell.text.trim();
+  const value = cell.value;
+  if (value == null) return '';
+  if (value instanceof Date) return toISODate(value);
+  if (typeof value === 'object') {
+    if (Array.isArray(value.richText)) return value.richText.map(part => part.text || '').join('').trim();
+    if ('result' in value) return String(value.result ?? '').trim();
+    if ('text' in value) return String(value.text ?? '').trim();
+  }
+  return String(value).trim();
+}
+
+function numericValue(cell) {
+  const raw = cell?.value;
+  if (typeof raw === 'number') return raw;
+  const parsed = Number(String(cellText(cell)).replace(/[$,\s]/g, ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toISODate(value) {
+  if (!value) return '';
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  if (typeof value === 'number') {
+    const date = new Date(Math.round((value - 25569) * 86400 * 1000));
+    return toISODate(new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  }
+  const match = String(value).match(/(20\d{2})[-\/.](\d{1,2})[-\/.](\d{1,2})/);
+  return match ? `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}` : '';
+}
+
+function deriveStartDate(endDate) {
+  if (!endDate) return '';
+  const date = new Date(`${endDate}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return '';
+  date.setFullYear(date.getFullYear() - 1);
+  date.setDate(date.getDate() + 1);
+  return toISODate(date);
+}
+
+function colorToRgb(color) {
+  const argb = color?.argb;
+  if (!argb || !/^[0-9A-F]{6,8}$/i.test(argb)) return null;
+  const rgb = argb.slice(-6);
+  return { r: parseInt(rgb.slice(0, 2), 16), g: parseInt(rgb.slice(2, 4), 16), b: parseInt(rgb.slice(4, 6), 16) };
+}
+
+function isRedFont(cell) {
+  const rgb = colorToRgb(cell?.font?.color);
+  return Boolean(rgb && rgb.r > 180 && rgb.g < 110 && rgb.b < 110);
+}
+
+function isYellowFill(cell) {
+  const rgb = colorToRgb(cell?.fill?.fgColor);
+  return Boolean(rgb && rgb.r > 220 && rgb.g > 190 && rgb.b < 210);
+}
+
+function inferStatus({ contractCell, rowCells, quoteNo, note, lastInvoiceDate }) {
+  const text = `${quoteNo || ''} ${note || ''}`;
+  if (isRedFont(contractCell) || /尚未報價|待報價/.test(text)) return 'pending_quote';
+  if (/已回簽|已簽回|完成用印|已用印|已完成|續約完成/.test(text)) return 'completed';
+  const yellow = rowCells.some(isYellowFill);
+  if (yellow || /SF[-－]|報價已|等待.*回簽|簽呈/.test(text)) return 'pending_signature';
+  if (lastInvoiceDate) return 'completed';
+  return 'tracking';
+}
+
+function stableId(account, contract, endDate) {
+  const input = `${account}|${contract}|${endDate}`;
+  let hash = 0;
+  for (let index = 0; index < input.length; index += 1) hash = ((hash << 5) - hash + input.charCodeAt(index)) | 0;
+  return `import-${Math.abs(hash)}`;
 }
 
 function statusPill(status) {
@@ -96,6 +191,18 @@ function bindEvents() {
   document.getElementById('statusFilter').addEventListener('change', event => { currentFilter = event.target.value; renderTable(); updateListTitle(); });
   document.getElementById('monthFilter').addEventListener('change', renderTable);
   document.getElementById('exportBtn').addEventListener('click', exportCSV);
+  document.getElementById('importBtn').addEventListener('click', openFilePicker);
+  document.getElementById('importTopBtn').addEventListener('click', openFilePicker);
+  document.getElementById('fileInput').addEventListener('change', event => {
+    const [file] = event.target.files;
+    if (file) importFile(file);
+    event.target.value = '';
+  });
+  document.getElementById('restoreBtn').addEventListener('click', restoreBackup);
+  const dropZone = document.getElementById('dropZone');
+  ['dragenter', 'dragover'].forEach(type => dropZone.addEventListener(type, event => { event.preventDefault(); dropZone.classList.add('dragover'); }));
+  ['dragleave', 'drop'].forEach(type => dropZone.addEventListener(type, event => { event.preventDefault(); dropZone.classList.remove('dragover'); }));
+  dropZone.addEventListener('drop', event => { const [file] = event.dataTransfer.files; if (file) importFile(file); });
   document.getElementById('mobileMenu').addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
   document.getElementById('contractDialog').addEventListener('click', event => { if (event.target === event.currentTarget) closeDialog(); });
 }
@@ -126,11 +233,20 @@ function updateListTitle() {
 }
 
 function renderAll() {
+  renderSourcePanel();
   renderMetrics();
   renderPriority();
   renderMonths();
   renderActivities();
   renderTable();
+}
+
+function renderSourcePanel() {
+  const name = sourceMeta?.name || '匿名示範資料';
+  const details = sourceMeta ? `${sourceMeta.count} 筆 · ${formatDate(sourceMeta.importedAt)} 匯入 · 檔案僅在此瀏覽器解析` : '可上傳同格式 Excel，即時替換本頁內容';
+  document.getElementById('sourceFileName').textContent = name;
+  document.getElementById('sourceMetaText').textContent = details;
+  document.getElementById('restoreBtn').hidden = !localStorage.getItem(BACKUP_KEY);
 }
 
 function renderMetrics() {
@@ -259,6 +375,170 @@ function showToast(message) {
   toast.classList.add('show');
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => toast.classList.remove('show'), 2200);
+}
+
+function openFilePicker() {
+  document.getElementById('fileInput').click();
+}
+
+async function importFile(file) {
+  const extension = file.name.split('.').pop().toLowerCase();
+  if (!['xlsx', 'csv'].includes(extension)) {
+    showToast('請上傳 .xlsx 或 .csv 檔案');
+    return;
+  }
+  try {
+    document.getElementById('sourceMetaText').textContent = `正在解析 ${file.name}…`;
+    const imported = extension === 'xlsx' ? await parseXlsx(file) : await parseCsvFile(file);
+    if (!imported.length) throw new Error('找不到可匯入的合約資料');
+    localStorage.setItem(BACKUP_KEY, JSON.stringify({ contracts, sourceMeta }));
+    contracts = imported;
+    sourceMeta = { name: file.name, count: imported.length, importedAt: new Date().toISOString().slice(0, 10) };
+    saveContracts();
+    localStorage.setItem(SOURCE_KEY, JSON.stringify(sourceMeta));
+    currentFilter = 'all';
+    document.getElementById('statusFilter').value = 'all';
+    document.getElementById('searchInput').value = '';
+    document.getElementById('monthFilter').value = 'all';
+    updateListTitle();
+    renderAll();
+    switchView('overview');
+    const pending = imported.filter(item => item.status === 'pending_quote').length;
+    showToast(`已匯入 ${imported.length} 筆，待報價 ${pending} 筆`);
+  } catch (error) {
+    console.error(error);
+    renderSourcePanel();
+    showToast(error.message || '檔案解析失敗，請確認格式');
+  }
+}
+
+async function parseXlsx(file) {
+  if (!window.ExcelJS) throw new Error('Excel 解析元件尚未載入，請重新整理後再試');
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(await file.arrayBuffer());
+  let matched = null;
+  workbook.eachSheet(worksheet => {
+    if (matched) return;
+    const limit = Math.min(worksheet.actualRowCount || worksheet.rowCount, 15);
+    for (let rowNumber = 1; rowNumber <= limit; rowNumber += 1) {
+      const row = worksheet.getRow(rowNumber);
+      const headers = new Map();
+      row.eachCell({ includeEmpty: true }, (cell, column) => headers.set(normalizeHeader(cellText(cell)), column));
+      if (headers.has('帳戶名稱') && headers.has('契約名稱') && headers.has('合約截止日')) {
+        matched = { worksheet, headerRow: rowNumber, headers };
+        break;
+      }
+    }
+  });
+  if (!matched) throw new Error('找不到「帳戶名稱／契約名稱／合約截止日」欄位');
+  const { worksheet, headerRow, headers } = matched;
+  const cellAt = (row, aliases) => {
+    const key = aliases.find(alias => headers.has(normalizeHeader(alias)));
+    return key ? row.getCell(headers.get(normalizeHeader(key))) : null;
+  };
+  const output = [];
+  for (let rowNumber = headerRow + 1; rowNumber <= (worksheet.actualRowCount || worksheet.rowCount); rowNumber += 1) {
+    const row = worksheet.getRow(rowNumber);
+    const account = cellText(cellAt(row, ['帳戶名稱']));
+    const contractCell = cellAt(row, ['契約名稱']);
+    const contract = cellText(contractCell);
+    if (!account || !contract) continue;
+    const endCell = cellAt(row, ['合約截止日']);
+    const endDate = toISODate(endCell?.value || cellText(endCell));
+    const quoteNo = cellText(cellAt(row, ['狀態更新', '報價單號']));
+    const note = cellText(cellAt(row, ['追蹤進度', '備註']));
+    const lastInvoiceDate = toISODate(cellAt(row, ['最近一次實際開票日'])?.value || cellText(cellAt(row, ['最近一次實際開票日'])));
+    const rowCells = Array.from({ length: Math.min(worksheet.actualColumnCount || worksheet.columnCount, 15) }, (_, index) => row.getCell(index + 1));
+    output.push({
+      id: stableId(account, contract, endDate),
+      account,
+      contract,
+      amount: numericValue(cellAt(row, ['合約金額(未稅)'])),
+      taxAmount: numericValue(cellAt(row, ['合約金額(含稅)'])),
+      cost: numericValue(cellAt(row, ['成本(含稅)'])),
+      projectHours: numericValue(cellAt(row, ['專案時數'])),
+      startDate: deriveStartDate(endDate),
+      endDate,
+      lastInvoiceDate,
+      quoteNo,
+      status: inferStatus({ contractCell, rowCells, quoteNo, note, lastInvoiceDate }),
+      dealType: cellText(cellAt(row, ['成交類型'])) || '維護保固',
+      note,
+      updatedAt: new Date().toISOString().slice(0, 10)
+    });
+  }
+  return output;
+}
+
+async function parseCsvFile(file) {
+  const rows = parseCsv(await file.text());
+  const headerIndex = rows.findIndex(row => {
+    const headers = row.map(normalizeHeader);
+    return headers.includes('帳戶名稱') && headers.includes('契約名稱') && headers.includes('合約截止日');
+  });
+  if (headerIndex < 0) throw new Error('找不到「帳戶名稱／契約名稱／合約截止日」欄位');
+  const headers = rows[headerIndex].map(normalizeHeader);
+  const valueAt = (row, aliases) => {
+    const index = aliases.map(normalizeHeader).map(alias => headers.indexOf(alias)).find(value => value >= 0);
+    return index >= 0 ? String(row[index] ?? '').trim() : '';
+  };
+  return rows.slice(headerIndex + 1).map((row, index) => {
+    const account = valueAt(row, ['帳戶名稱']);
+    const contract = valueAt(row, ['契約名稱']);
+    if (!account || !contract) return null;
+    const endDate = toISODate(valueAt(row, ['合約截止日']));
+    const quoteNo = valueAt(row, ['狀態更新', '報價單號']);
+    const note = valueAt(row, ['追蹤進度', '備註']);
+    const lastInvoiceDate = toISODate(valueAt(row, ['最近一次實際開票日']));
+    const contractCell = { font: {} };
+    const rowCells = [];
+    return {
+      id: stableId(account, contract, endDate || index), account, contract,
+      amount: Number(valueAt(row, ['合約金額(未稅)']).replace(/[$,\s]/g, '')) || 0,
+      taxAmount: Number(valueAt(row, ['合約金額(含稅)']).replace(/[$,\s]/g, '')) || 0,
+      cost: Number(valueAt(row, ['成本(含稅)']).replace(/[$,\s]/g, '')) || 0,
+      projectHours: Number(valueAt(row, ['專案時數']).replace(/[,\s]/g, '')) || 0,
+      startDate: deriveStartDate(endDate), endDate, lastInvoiceDate, quoteNo,
+      status: inferStatus({ contractCell, rowCells, quoteNo, note, lastInvoiceDate }),
+      dealType: valueAt(row, ['成交類型']) || '維護保固', note,
+      updatedAt: new Date().toISOString().slice(0, 10)
+    };
+  }).filter(Boolean);
+}
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [], field = '', quoted = false;
+  const source = text.replace(/^\uFEFF/, '');
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (quoted) {
+      if (char === '"' && source[index + 1] === '"') { field += '"'; index += 1; }
+      else if (char === '"') quoted = false;
+      else field += char;
+    } else if (char === '"') quoted = true;
+    else if (char === ',') { row.push(field); field = ''; }
+    else if (char === '\n') { row.push(field.replace(/\r$/, '')); rows.push(row); row = []; field = ''; }
+    else field += char;
+  }
+  if (field || row.length) { row.push(field.replace(/\r$/, '')); rows.push(row); }
+  return rows;
+}
+
+function restoreBackup() {
+  try {
+    const backup = JSON.parse(localStorage.getItem(BACKUP_KEY));
+    if (!backup?.contracts?.length) throw new Error('沒有可還原的資料');
+    const current = { contracts, sourceMeta };
+    contracts = backup.contracts;
+    sourceMeta = backup.sourceMeta || null;
+    localStorage.setItem(BACKUP_KEY, JSON.stringify(current));
+    saveContracts();
+    if (sourceMeta) localStorage.setItem(SOURCE_KEY, JSON.stringify(sourceMeta));
+    else localStorage.removeItem(SOURCE_KEY);
+    renderAll();
+    showToast(`已還原 ${contracts.length} 筆資料`);
+  } catch (error) { showToast(error.message || '無法還原資料'); }
 }
 
 function exportCSV() {
