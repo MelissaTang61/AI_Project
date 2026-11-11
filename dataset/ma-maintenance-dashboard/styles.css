@@ -60,6 +60,20 @@ main { grid-column: 2; min-width: 0; }
 .primary-button svg, .secondary-button svg { width: 15px; height: 15px; }
 .mobile-menu { display: none; }
 
+.source-panel { margin: -8px 0 22px; padding: 15px 17px; border: 1px dashed #bdc9c2; border-radius: 15px; background: rgba(255,254,250,.7); display: flex; align-items: center; gap: 13px; transition: .2s ease; }
+.source-panel.dragover { border-color: var(--forest); background: #edf5f1; box-shadow: inset 0 0 0 2px rgba(23,74,61,.08); }
+.source-icon { width: 41px; height: 41px; flex: 0 0 41px; display: grid; place-items: center; border-radius: 12px; color: #2e6f5d; background: #dceee7; }
+.source-icon svg { width: 20px; height: 20px; }
+.source-copy { min-width: 0; }
+.source-copy span, .source-copy b, .source-copy small { display: block; }
+.source-kicker { margin-bottom: 2px; color: var(--forest-2); font-size: 8px; font-weight: 700; letter-spacing: .12em; }
+.source-copy b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.source-copy small { margin-top: 3px; color: var(--muted); font-size: 9px; }
+.source-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.text-button { padding: 7px 9px; border: 0; background: transparent; color: #6b7c76; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 10px; }
+.text-button:hover { color: var(--forest); }
+.text-button svg { width: 14px; }
+
 .page { display: none; padding: 42px 46px 64px; max-width: 1500px; margin: 0 auto; }
 .page.active { display: block; animation: appear .28s ease; }
 @keyframes appear { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
@@ -200,10 +214,15 @@ dialog::backdrop { background: rgba(13,37,31,.48); backdrop-filter: blur(3px); }
   .mobile-menu { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 9px; background: var(--paper); }
   .mobile-menu svg { width: 17px; }
   .breadcrumb, .today, #exportBtn { display: none; }
+  .import-top-button { display: none; }
   .topbar-actions { margin-left: auto; }
   .page { padding: 30px 17px 48px; }
   .page-heading { align-items: flex-start; }
   .page-heading > .secondary-button { display: none; }
+  .source-panel { align-items: flex-start; flex-wrap: wrap; }
+  .source-copy { flex: 1; }
+  .source-actions { width: 100%; margin-left: 54px; }
+  .source-actions .primary-button { flex: 1; }
   h1 { font-size: 28px; }
   .metric-grid, .overview-bottom { grid-template-columns: 1fr; }
   .metric-card { min-height: 250px; }
