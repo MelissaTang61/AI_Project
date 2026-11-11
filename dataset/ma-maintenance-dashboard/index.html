@@ -36,6 +36,7 @@
           <div class="topbar-actions">
             <button class="icon-button" id="exportBtn" title="匯出 CSV" aria-label="匯出 CSV"><span data-icon="download"></span></button>
             <div class="today"><span data-icon="calendar"></span><span id="todayLabel">2026.11.11</span></div>
+            <button class="secondary-button import-top-button" id="importTopBtn"><span data-icon="upload"></span>上傳更新</button>
             <button class="primary-button" id="addContractBtn"><span data-icon="plus"></span>新增 MA</button>
           </div>
         </header>
@@ -49,6 +50,20 @@
             </div>
             <button class="secondary-button" id="viewAllBtn">查看全部合約 <span data-icon="arrow"></span></button>
           </div>
+
+          <section class="source-panel" id="dropZone">
+            <div class="source-icon"><span data-icon="sheet"></span></div>
+            <div class="source-copy">
+              <span class="source-kicker">目前資料來源</span>
+              <b id="sourceFileName">匿名示範資料</b>
+              <small id="sourceMetaText">可上傳同格式 Excel，即時替換本頁內容</small>
+            </div>
+            <div class="source-actions">
+              <button class="text-button" id="restoreBtn" hidden><span data-icon="undo"></span>還原上一版</button>
+              <button class="primary-button" id="importBtn"><span data-icon="upload"></span>上傳 Excel 更新</button>
+            </div>
+            <input id="fileInput" type="file" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden />
+          </section>
 
           <div class="metric-grid">
             <article class="metric-card quote-card" data-filter-jump="pending_quote" tabindex="0" role="button" aria-label="查看待報價明細">
@@ -161,7 +176,7 @@
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"><span data-icon="check"></span><span id="toastMessage">已儲存</span></div>
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
-
