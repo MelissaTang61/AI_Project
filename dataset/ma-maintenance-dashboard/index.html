@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="MA 維護保固合約報價與回簽追蹤管理台" />
+    <meta name="theme-color" content="#16352e" />
+    <title>MA Flow｜維護合約管理</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="主要導覽">
+        <a class="brand" href="#overview" aria-label="MA Flow 首頁">
+          <span class="brand-mark">M</span>
+          <span><b>MA Flow</b><small>維護合約管理</small></span>
+        </a>
+        <nav class="nav-list">
+          <button class="nav-item active" data-view="overview">
+            <span data-icon="grid"></span><span>總覽概要</span>
+          </button>
+          <button class="nav-item" data-view="contracts">
+            <span data-icon="file"></span><span>合約清單</span>
+          </button>
+        </nav>
+        <div class="sidebar-note">
+          <span class="status-dot"></span>
+          <div><b>資料已自動儲存</b><small>僅儲存在此瀏覽器</small></div>
+        </div>
+      </aside>
+
+      <main>
+        <header class="topbar">
+          <button class="mobile-menu" id="mobileMenu" aria-label="開啟選單"><span data-icon="menu"></span></button>
+          <div class="breadcrumb">合約管理 <span>/</span> <b id="pageName">總覽概要</b></div>
+          <div class="topbar-actions">
+            <button class="icon-button" id="exportBtn" title="匯出 CSV" aria-label="匯出 CSV"><span data-icon="download"></span></button>
+            <div class="today"><span data-icon="calendar"></span><span id="todayLabel">2026.11.11</span></div>
+            <button class="primary-button" id="addContractBtn"><span data-icon="plus"></span>新增 MA</button>
+          </div>
+        </header>
+
+        <section class="page active" id="overviewView">
+          <div class="page-heading">
+            <div>
+              <span class="eyebrow">MA CONTROL CENTER</span>
+              <h1>早安，今天先處理哪一筆？</h1>
+              <p>報價與回簽進度一目了然，優先處理即將到期的維護合約。</p>
+            </div>
+            <button class="secondary-button" id="viewAllBtn">查看全部合約 <span data-icon="arrow"></span></button>
+          </div>
+
+          <div class="metric-grid">
+            <article class="metric-card quote-card" data-filter-jump="pending_quote" tabindex="0" role="button" aria-label="查看待報價明細">
+              <div class="metric-top">
+                <span class="metric-icon"><span data-icon="quote"></span></span>
+                <span class="metric-label">待報價</span>
+                <span class="metric-arrow" data-icon="arrow"></span>
+              </div>
+              <div class="metric-main">
+                <div><button class="metric-number" id="pendingQuoteCount">0</button><span class="unit">件</span><p>即將到期，尚未建立報價</p></div>
+                <div class="ring" id="quoteRing"><span id="quotePercent">0%</span></div>
+              </div>
+              <div class="progress-row"><span>報價完成度</span><b id="quoteProgressText">0 / 0</b></div>
+              <div class="progress-track"><i id="quoteProgressBar"></i></div>
+            </article>
+
+            <article class="metric-card sign-card" data-filter-jump="pending_signature" tabindex="0" role="button" aria-label="查看待回簽明細">
+              <div class="metric-top">
+                <span class="metric-icon"><span data-icon="signature"></span></span>
+                <span class="metric-label">待回簽</span>
+                <span class="metric-arrow" data-icon="arrow"></span>
+              </div>
+              <div class="metric-main">
+                <div><button class="metric-number" id="pendingSignCount">0</button><span class="unit">件</span><p>報價已送出，等待客戶回簽</p></div>
+                <div class="ring" id="signRing"><span id="signPercent">0%</span></div>
+              </div>
+              <div class="progress-row"><span>回簽完成度</span><b id="signProgressText">0 / 0</b></div>
+              <div class="progress-track"><i id="signProgressBar"></i></div>
+            </article>
+          </div>
+
+          <section class="panel priority-panel">
+            <div class="panel-heading">
+              <div><h2>優先處理</h2><p>依到期日排序的待辦合約</p></div>
+              <div class="legend"><span><i class="legend-red"></i>即將到期</span><span><i class="legend-yellow"></i>已有報價</span></div>
+            </div>
+            <div class="priority-list" id="priorityList"></div>
+          </section>
+
+          <div class="overview-bottom">
+            <section class="panel deadline-panel">
+              <div class="panel-heading"><div><h2>到期月份分布</h2><p>目前合約集中月份</p></div></div>
+              <div class="month-bars" id="monthBars"></div>
+            </section>
+            <section class="panel activity-panel">
+              <div class="panel-heading"><div><h2>最新動態</h2><p>近期報價與追蹤紀錄</p></div></div>
+              <div class="activity-list" id="activityList"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="page" id="contractsView">
+          <div class="page-heading contract-heading">
+            <div>
+              <span class="eyebrow">CONTRACT WORKSPACE</span>
+              <h1 id="contractListTitle">全部合約</h1>
+              <p id="contractListSubtitle">管理報價、回簽與維護期間。</p>
+            </div>
+            <div class="count-badge"><b id="visibleCount">0</b> 筆資料</div>
+          </div>
+
+          <section class="panel table-panel">
+            <div class="table-toolbar">
+              <label class="search-box"><span data-icon="search"></span><input id="searchInput" type="search" placeholder="搜尋客戶、契約或報價單號" /></label>
+              <div class="filter-group">
+                <select id="statusFilter" aria-label="篩選狀態">
+                  <option value="all">所有進度</option>
+                  <option value="pending_quote">待報價</option>
+                  <option value="pending_signature">待回簽</option>
+                  <option value="completed">已完成</option>
+                  <option value="tracking">持續追蹤</option>
+                </select>
+                <select id="monthFilter" aria-label="篩選到期月份"><option value="all">所有月份</option></select>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>狀態</th><th>帳戶 / 契約</th><th>合約金額</th><th>期間</th><th>報價單號</th><th>最近更新</th><th>操作</th></tr></thead>
+                <tbody id="contractTableBody"></tbody>
+              </table>
+              <div class="empty-state" id="emptyState"><span data-icon="search"></span><h3>找不到符合條件的合約</h3><p>請調整搜尋關鍵字或篩選條件。</p></div>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="contractDialog">
+      <form method="dialog" id="contractForm">
+        <div class="dialog-header">
+          <div><span class="eyebrow">MA RECORD</span><h2 id="dialogTitle">新增 MA</h2></div>
+          <button type="button" class="icon-button" id="closeDialogBtn" aria-label="關閉"><span data-icon="close"></span></button>
+        </div>
+        <div class="form-grid">
+          <label class="wide"><span>帳戶名稱 *</span><input name="account" required placeholder="例：示範客戶 A 公司" /></label>
+          <label class="wide"><span>契約名稱 *</span><input name="contract" required placeholder="例：歷程填寫頁面 2027MA" /></label>
+          <label><span>未稅金額</span><input name="amount" type="number" min="0" step="1" placeholder="0" /></label>
+          <label><span>含稅金額</span><input name="taxAmount" type="number" min="0" step="1" placeholder="0" /></label>
+          <label><span>合約起日</span><input name="startDate" type="date" /></label>
+          <label><span>合約截止日 *</span><input name="endDate" type="date" required /></label>
+          <label><span>工作狀態 *</span><select name="status" required><option value="pending_quote">待報價</option><option value="pending_signature">待回簽</option><option value="completed">已完成</option><option value="tracking">持續追蹤</option></select></label>
+          <label><span>報價單號</span><input name="quoteNo" placeholder="例：SF-DEMO-001" /></label>
+          <label><span>最近一次實際開票日</span><input name="lastInvoiceDate" type="date" /></label>
+          <label><span>成交類型</span><select name="dealType"><option>維護保固</option><option>專案</option><option>其他</option></select></label>
+          <label class="wide"><span>追蹤進度</span><textarea name="note" rows="3" placeholder="記錄客戶回覆、預計回簽日或下一步"></textarea></label>
+        </div>
+        <input type="hidden" name="id" />
+        <div class="dialog-actions"><button type="button" class="secondary-button" id="cancelDialogBtn">取消</button><button class="primary-button" value="save"><span data-icon="check"></span>儲存資料</button></div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"><span data-icon="check"></span><span id="toastMessage">已儲存</span></div>
+    <script src="app.js"></script>
+  </body>
+</html>
+
