@@ -69,11 +69,11 @@
             <article class="metric-card quote-card" data-filter-jump="pending_quote" tabindex="0" role="button" aria-label="查看待報價明細">
               <div class="metric-top">
                 <span class="metric-icon"><span data-icon="quote"></span></span>
-                <span class="metric-label">待報價</span>
+                <span class="metric-label">待報價（3 個月內）</span>
                 <span class="metric-arrow" data-icon="arrow"></span>
               </div>
               <div class="metric-main">
-                <div><button class="metric-number" id="pendingQuoteCount">0</button><span class="unit">件</span><p>即將到期，尚未建立報價</p></div>
+                <div><button class="metric-number" id="pendingQuoteCount">0</button><span class="unit">件</span><p>今日起三個月內到期，尚未建立報價</p></div>
                 <div class="ring" id="quoteRing"><span id="quotePercent">0%</span></div>
               </div>
               <div class="progress-row"><span>報價完成度</span><b id="quoteProgressText">0 / 0</b></div>
@@ -97,8 +97,8 @@
 
           <section class="panel priority-panel">
             <div class="panel-heading">
-              <div><h2>優先處理</h2><p>依到期日排序的待辦合約</p></div>
-              <div class="legend"><span><i class="legend-red"></i>即將到期</span><span><i class="legend-yellow"></i>已有報價</span></div>
+              <div><h2>優先處理</h2><p>依到期日排序；一個月內或逾期以紅字提醒</p></div>
+              <div class="legend"><span><i class="legend-red"></i>一個月內／已逾期</span><span><i class="legend-yellow"></i>已有報價</span></div>
             </div>
             <div class="priority-list" id="priorityList"></div>
           </section>
@@ -131,17 +131,18 @@
               <div class="filter-group">
                 <select id="statusFilter" aria-label="篩選狀態">
                   <option value="all">所有進度</option>
-                  <option value="pending_quote">待報價</option>
+                  <option value="pending_quote">待報價（3 個月內）</option>
                   <option value="pending_signature">待回簽</option>
                   <option value="completed">已完成</option>
                   <option value="tracking">持續追蹤</option>
                 </select>
+                <select id="companyFilter" aria-label="篩選公司"><option value="all">所有公司</option></select>
                 <select id="monthFilter" aria-label="篩選到期月份"><option value="all">所有月份</option></select>
               </div>
             </div>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>狀態</th><th>帳戶 / 契約</th><th>合約金額</th><th>期間</th><th>報價單號</th><th>最近更新</th><th>操作</th></tr></thead>
+                <thead><tr><th>狀態</th><th>帳戶 / 契約</th><th>報價方式</th><th>期間 / 到期提醒</th><th>報價單號</th><th>最近更新</th><th>操作</th></tr></thead>
                 <tbody id="contractTableBody"></tbody>
               </table>
               <div class="empty-state" id="emptyState"><span data-icon="search"></span><h3>找不到符合條件的合約</h3><p>請調整搜尋關鍵字或篩選條件。</p></div>
@@ -160,14 +161,17 @@
         <div class="form-grid">
           <label class="wide"><span>帳戶名稱 *</span><input name="account" required placeholder="例：示範客戶 A 公司" /></label>
           <label class="wide"><span>契約名稱 *</span><input name="contract" required placeholder="例：歷程填寫頁面 2027MA" /></label>
-          <label><span>未稅金額</span><input name="amount" type="number" min="0" step="1" placeholder="0" /></label>
-          <label><span>含稅金額</span><input name="taxAmount" type="number" min="0" step="1" placeholder="0" /></label>
+          <label><span>報價類型 *</span><select name="quoteType" id="quoteType" required><option value="cash">現金</option><option value="hours">時數</option></select></label>
+          <label><span>成交類型</span><select name="dealType"><option>維護保固</option><option>專案</option><option>其他</option></select></label>
+          <label class="cash-field"><span>未稅金額</span><input name="amount" type="number" min="0" step="1" placeholder="0" /></label>
+          <label class="cash-field"><span>含稅金額</span><input name="taxAmount" type="number" min="0" step="1" placeholder="0" /></label>
+          <label class="hours-field" hidden><span>原有專案時數</span><input name="projectHours" type="number" min="0" step="0.01" placeholder="0" /></label>
+          <label class="hours-field" hidden><span>本次要報價的時數</span><input name="quoteHours" type="number" min="0" step="0.01" readonly /><small id="hoursFormula">原有專案時數 × 15% × 12/12</small></label>
           <label><span>合約起日</span><input name="startDate" type="date" /></label>
           <label><span>合約截止日 *</span><input name="endDate" type="date" required /></label>
           <label><span>工作狀態 *</span><select name="status" required><option value="pending_quote">待報價</option><option value="pending_signature">待回簽</option><option value="completed">已完成</option><option value="tracking">持續追蹤</option></select></label>
           <label><span>報價單號</span><input name="quoteNo" placeholder="例：SF-DEMO-001" /></label>
           <label><span>最近一次實際開票日</span><input name="lastInvoiceDate" type="date" /></label>
-          <label><span>成交類型</span><select name="dealType"><option>維護保固</option><option>專案</option><option>其他</option></select></label>
           <label class="wide"><span>追蹤進度</span><textarea name="note" rows="3" placeholder="記錄客戶回覆、預計回簽日或下一步"></textarea></label>
         </div>
         <input type="hidden" name="id" />
@@ -179,3 +183,4 @@
     <script src="app.js"></script>
   </body>
 </html>
+
