@@ -43,6 +43,87 @@ const statusMeta = {
   tracking: { label: '持續追蹤', className: 'tracking' }
 };
 
+const QUOTE_WINDOW_MONTHS = 3;
+const CRITICAL_WINDOW_MONTHS = 1;
+
+function localToday() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+function parseLocalDate(value) {
+  if (!value) return null;
+  const [year, month, day] = String(value).split('-').map(Number);
+  if (!year || !month || !day) return null;
+  const date = new Date(year, month - 1, day);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function addMonths(date, months) {
+  const result = new Date(date);
+  const targetMonth = result.getMonth() + months;
+  const targetDay = result.getDate();
+  result.setDate(1);
+  result.setMonth(targetMonth);
+  const lastDay = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+  result.setDate(Math.min(targetDay, lastDay));
+  return result;
+}
+
+function hasEstablishedQuote(item) {
+  if (['pending_signature', 'completed'].includes(item.status)) return true;
+  return /SF[-－]|已報價|報價已|等待.*回簽|簽呈/.test(`${item.quoteNo || ''} ${item.note || ''}`);
+}
+
+function needsQuote(item) {
+  const endDate = parseLocalDate(item.endDate);
+  if (!endDate || item.status === 'completed' || hasEstablishedQuote(item)) return false;
+  return endDate <= addMonths(localToday(), QUOTE_WINDOW_MONTHS);
+}
+
+function effectiveStatus(item) {
+  if (needsQuote(item)) return 'pending_quote';
+  return item.status === 'pending_quote' ? 'tracking' : item.status;
+}
+
+function isDeadlineCritical(item) {
+  const endDate = parseLocalDate(item.endDate);
+  return Boolean(needsQuote(item) && endDate && endDate <= addMonths(localToday(), CRITICAL_WINDOW_MONTHS));
+}
+
+function deadlineMessage(item) {
+  const endDate = parseLocalDate(item.endDate);
+  if (!endDate) return '';
+  const days = Math.ceil((endDate - localToday()) / 86400000);
+  if (days < 0) return `已逾期 ${Math.abs(days)} 天`;
+  if (days === 0) return '今日到期';
+  if (days <= 31) return `剩餘 ${days} 天`;
+  return '';
+}
+
+function contractMonthCount(startDate, endDate) {
+  const start = parseLocalDate(startDate);
+  const end = parseLocalDate(endDate);
+  if (!start || !end || end < start) return 12;
+  return Math.max(1, (end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth() + 1);
+}
+
+function calculateQuoteHours(projectHours, startDate, endDate) {
+  const months = contractMonthCount(startDate, endDate);
+  return Math.round((Number(projectHours || 0) * 0.15 * months / 12) * 100) / 100;
+}
+
+function normalizeContract(item) {
+  const projectHours = Number(item.projectHours || 0);
+  const quoteType = item.quoteType || (projectHours > 0 ? 'hours' : 'cash');
+  return {
+    ...item,
+    projectHours,
+    quoteType,
+    quoteHours: item.quoteHours == null || item.quoteHours === '' ? calculateQuoteHours(projectHours, item.startDate, item.endDate) : Number(item.quoteHours || 0)
+  };
+}
+
 let contracts = loadContracts();
 let sourceMeta = loadSourceMeta();
 let activeView = 'overview';
@@ -51,8 +132,8 @@ let currentFilter = 'all';
 function loadContracts() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    return Array.isArray(saved) && saved.length ? saved : structuredClone(seedContracts);
-  } catch { return structuredClone(seedContracts); }
+    return (Array.isArray(saved) && saved.length ? saved : structuredClone(seedContracts)).map(normalizeContract);
+  } catch { return structuredClone(seedContracts).map(normalizeContract); }
 }
 
 function saveContracts() {
@@ -177,7 +258,7 @@ function init() {
 
 function bindEvents() {
   document.querySelectorAll('.nav-item').forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.view)));
-  document.getElementById('viewAllBtn').addEventListener('click', () => { currentFilter = 'all'; document.getElementById('statusFilter').value = 'all'; switchView('contracts'); });
+  document.getElementById('viewAllBtn').addEventListener('click', () => { currentFilter = 'all'; document.getElementById('statusFilter').value = 'all'; document.getElementById('companyFilter').value = 'all'; switchView('contracts'); });
   document.querySelectorAll('[data-filter-jump]').forEach(card => {
     const jump = () => jumpToFilter(card.dataset.filterJump);
     card.addEventListener('click', jump);
@@ -189,7 +270,10 @@ function bindEvents() {
   document.getElementById('contractForm').addEventListener('submit', saveForm);
   document.getElementById('searchInput').addEventListener('input', renderTable);
   document.getElementById('statusFilter').addEventListener('change', event => { currentFilter = event.target.value; renderTable(); updateListTitle(); });
+  document.getElementById('companyFilter').addEventListener('change', renderTable);
   document.getElementById('monthFilter').addEventListener('change', renderTable);
+  document.getElementById('quoteType').addEventListener('change', updateQuoteFields);
+  ['projectHours', 'startDate', 'endDate'].forEach(name => document.getElementById('contractForm').elements[name].addEventListener('input', updateQuoteHours));
   document.getElementById('exportBtn').addEventListener('click', exportCSV);
   document.getElementById('importBtn').addEventListener('click', openFilePicker);
   document.getElementById('importTopBtn').addEventListener('click', openFilePicker);
@@ -221,6 +305,7 @@ function jumpToFilter(filter) {
   currentFilter = filter;
   document.getElementById('statusFilter').value = filter;
   document.getElementById('searchInput').value = '';
+  document.getElementById('companyFilter').value = 'all';
   document.getElementById('monthFilter').value = 'all';
   updateListTitle();
   switchView('contracts');
@@ -229,11 +314,12 @@ function jumpToFilter(filter) {
 function updateListTitle() {
   const meta = statusMeta[currentFilter];
   document.getElementById('contractListTitle').textContent = meta ? `${meta.label}明細` : '全部合約';
-  document.getElementById('contractListSubtitle').textContent = currentFilter === 'pending_quote' ? '即將到期、尚未建立報價的合約。' : currentFilter === 'pending_signature' ? '報價已送出、等待客戶回簽的合約。' : '管理報價、回簽與維護期間。';
+  document.getElementById('contractListSubtitle').textContent = currentFilter === 'pending_quote' ? '今日起三個月內到期且尚未報價；一個月內或逾期以紅字顯示。' : currentFilter === 'pending_signature' ? '報價已送出、等待客戶回簽的合約。' : '管理報價、回簽與維護期間。';
 }
 
 function renderAll() {
   renderSourcePanel();
+  populateCompanies();
   renderMetrics();
   renderPriority();
   renderMonths();
@@ -250,9 +336,14 @@ function renderSourcePanel() {
 }
 
 function renderMetrics() {
-  const pendingQuote = contracts.filter(item => item.status === 'pending_quote').length;
-  const quoteScope = contracts.filter(item => item.status !== 'tracking');
-  const quoteDone = quoteScope.length - pendingQuote;
+  const today = localToday();
+  const windowEnd = addMonths(today, QUOTE_WINDOW_MONTHS);
+  const pendingQuote = contracts.filter(needsQuote).length;
+  const quoteScope = contracts.filter(item => {
+    const endDate = parseLocalDate(item.endDate);
+    return Boolean(endDate && ((endDate >= today && endDate <= windowEnd) || needsQuote(item)));
+  });
+  const quoteDone = quoteScope.filter(item => !needsQuote(item)).length;
   const quotePct = quoteScope.length ? Math.round(quoteDone / quoteScope.length * 100) : 0;
   const pendingSign = contracts.filter(item => item.status === 'pending_signature').length;
   const signScope = contracts.filter(item => ['pending_signature', 'completed'].includes(item.status));
@@ -272,13 +363,13 @@ function renderMetrics() {
 }
 
 function renderPriority() {
-  const items = contracts.filter(item => ['pending_quote', 'pending_signature'].includes(item.status)).sort((a, b) => a.endDate.localeCompare(b.endDate)).slice(0, 6);
+  const items = contracts.filter(item => needsQuote(item) || item.status === 'pending_signature').sort((a, b) => a.endDate.localeCompare(b.endDate)).slice(0, 6);
   document.getElementById('priorityList').innerHTML = items.map(item => `
-    <div class="priority-item">
-      <div class="account-cell"><b>${escapeHTML(item.account)}</b><small>截止 ${formatDate(item.endDate)}</small></div>
-      <div class="contract-cell ${item.status === 'pending_quote' ? 'urgent' : ''}"><b>${escapeHTML(item.contract)}</b><small>${escapeHTML(item.note || '尚無追蹤紀錄')}</small></div>
-      <div class="amount-cell"><b>${formatMoney(item.taxAmount)}</b><small>含稅</small></div>
-      ${statusPill(item.status)}
+    <div class="priority-item ${isDeadlineCritical(item) ? 'deadline-critical' : ''}">
+      <div class="account-cell"><b>${escapeHTML(item.account)}</b><small>截止 ${formatDate(item.endDate)}</small>${deadlineMessage(item) ? `<span class="deadline-note">${escapeHTML(deadlineMessage(item))}</span>` : ''}</div>
+      <div class="contract-cell ${isDeadlineCritical(item) ? 'urgent' : ''}"><b>${escapeHTML(item.contract)}</b><small>${escapeHTML(item.note || '尚無追蹤紀錄')}</small></div>
+      <div class="amount-cell">${pricingSummary(item)}</div>
+      ${statusPill(effectiveStatus(item))}
       <button class="row-action" data-edit-id="${item.id}" aria-label="編輯 ${escapeHTML(item.account)}">${icons.edit}</button>
     </div>`).join('');
   bindEditButtons(document.getElementById('priorityList'));
@@ -292,7 +383,7 @@ function renderMonths() {
 
 function renderActivities() {
   const items = [...contracts].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 5);
-  document.getElementById('activityList').innerHTML = items.map(item => `<div class="activity-item"><i></i><div><b>${escapeHTML(item.account)}</b><small>${statusMeta[item.status].label} · ${escapeHTML(item.quoteNo || item.contract)}</small></div><time>${formatDate(item.updatedAt)}</time></div>`).join('');
+  document.getElementById('activityList').innerHTML = items.map(item => `<div class="activity-item"><i></i><div><b>${escapeHTML(item.account)}</b><small>${statusMeta[effectiveStatus(item)].label} · ${escapeHTML(item.quoteNo || item.contract)}</small></div><time>${formatDate(item.updatedAt)}</time></div>`).join('');
 }
 
 function populateMonths() {
@@ -300,23 +391,41 @@ function populateMonths() {
   for (let month = 1; month <= 12; month += 1) select.insertAdjacentHTML('beforeend', `<option value="${month}">${month} 月到期</option>`);
 }
 
+function populateCompanies() {
+  const select = document.getElementById('companyFilter');
+  const selected = select.value || 'all';
+  const companies = [...new Set(contracts.map(item => item.account).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+  select.replaceChildren(new Option('所有公司', 'all'), ...companies.map(company => new Option(company, company)));
+  select.value = companies.includes(selected) ? selected : 'all';
+}
+
+function pricingSummary(item) {
+  if (item.quoteType === 'hours') {
+    const quoteHours = item.quoteHours == null ? calculateQuoteHours(item.projectHours, item.startDate, item.endDate) : Number(item.quoteHours || 0);
+    return `<span class="quote-type">時數</span><span class="quote-hours">本次 ${quoteHours.toLocaleString('zh-TW')} 小時<small>原有 ${Number(item.projectHours || 0).toLocaleString('zh-TW')} 小時</small></span>`;
+  }
+  return `<span class="quote-type">現金</span><b>${formatMoney(item.taxAmount)}</b><small>未稅 ${formatMoney(item.amount)}</small>`;
+}
+
 function renderTable() {
   const query = document.getElementById('searchInput').value.trim().toLowerCase();
   const status = document.getElementById('statusFilter').value;
+  const company = document.getElementById('companyFilter').value;
   const month = document.getElementById('monthFilter').value;
   const filtered = contracts.filter(item => {
     const matchQuery = !query || [item.account, item.contract, item.quoteNo, item.note].some(value => String(value || '').toLowerCase().includes(query));
-    const matchStatus = status === 'all' || item.status === status;
+    const matchStatus = status === 'all' || effectiveStatus(item) === status;
+    const matchCompany = company === 'all' || item.account === company;
     const matchMonth = month === 'all' || Number(item.endDate?.split('-')[1]) === Number(month);
-    return matchQuery && matchStatus && matchMonth;
+    return matchQuery && matchStatus && matchCompany && matchMonth;
   }).sort((a, b) => a.endDate.localeCompare(b.endDate));
 
   document.getElementById('visibleCount').textContent = filtered.length;
-  document.getElementById('contractTableBody').innerHTML = filtered.map(item => `<tr>
-    <td>${statusPill(item.status)}</td>
-    <td class="table-account ${item.status === 'pending_quote' ? 'urgent' : ''}"><b>${escapeHTML(item.account)}</b><span>${escapeHTML(item.contract)}</span></td>
-    <td><b>${formatMoney(item.taxAmount)}</b><br><span class="no-quote">未稅 ${formatMoney(item.amount)}</span></td>
-    <td class="date-range"><span>${formatDate(item.startDate)}</span><span>至 ${formatDate(item.endDate)}</span></td>
+  document.getElementById('contractTableBody').innerHTML = filtered.map(item => `<tr class="${isDeadlineCritical(item) ? 'deadline-critical' : ''}">
+    <td>${statusPill(effectiveStatus(item))}</td>
+    <td class="table-account ${isDeadlineCritical(item) ? 'urgent' : ''}"><b>${escapeHTML(item.account)}</b><span>${escapeHTML(item.contract)}</span></td>
+    <td>${pricingSummary(item)}</td>
+    <td class="date-range"><span>${formatDate(item.startDate)}</span><span>至 ${formatDate(item.endDate)}</span>${deadlineMessage(item) ? `<span class="deadline-note">${escapeHTML(deadlineMessage(item))}</span>` : ''}</td>
     <td>${item.quoteNo ? `<span class="quote-chip">${escapeHTML(item.quoteNo)}</span>` : '<span class="no-quote">尚未建立</span>'}</td>
     <td>${formatDate(item.updatedAt)}</td>
     <td><button class="row-action" data-edit-id="${item.id}" aria-label="編輯 ${escapeHTML(item.account)}">${icons.edit}</button></td>
@@ -341,23 +450,49 @@ function openDialog(id = '') {
     form.elements.id.value = '';
     form.elements.startDate.value = new Date().toISOString().slice(0, 10);
     form.elements.status.value = 'pending_quote';
+    form.elements.quoteType.value = 'cash';
   }
+  updateQuoteFields();
+  updateQuoteHours();
   document.getElementById('contractDialog').showModal();
   setTimeout(() => form.elements.account.focus(), 50);
 }
 
 function closeDialog() { document.getElementById('contractDialog').close(); }
 
+function updateQuoteFields() {
+  const form = document.getElementById('contractForm');
+  const isHours = form.elements.quoteType.value === 'hours';
+  document.querySelectorAll('.hours-field').forEach(element => { element.hidden = !isHours; });
+  document.querySelectorAll('.cash-field').forEach(element => { element.hidden = isHours; });
+  updateQuoteHours();
+}
+
+function updateQuoteHours() {
+  const form = document.getElementById('contractForm');
+  const months = contractMonthCount(form.elements.startDate.value, form.elements.endDate.value);
+  form.elements.quoteHours.value = calculateQuoteHours(form.elements.projectHours.value, form.elements.startDate.value, form.elements.endDate.value);
+  document.getElementById('hoursFormula').textContent = `原有專案時數 × 15% × ${months}/12（依合約起訖月份）`;
+}
+
 function saveForm(event) {
   event.preventDefault();
   const form = event.currentTarget;
   if (!form.reportValidity()) return;
   const values = Object.fromEntries(new FormData(form));
+  if (values.startDate && values.endDate && values.endDate < values.startDate) {
+    form.elements.endDate.setCustomValidity('合約截止日不可早於合約起日');
+    form.elements.endDate.reportValidity();
+    form.elements.endDate.addEventListener('input', () => form.elements.endDate.setCustomValidity(''), { once: true });
+    return;
+  }
   const record = {
     ...values,
     id: values.id || `ma-${Date.now()}`,
     amount: Number(values.amount || 0),
     taxAmount: Number(values.taxAmount || 0),
+    projectHours: Number(values.projectHours || 0),
+    quoteHours: calculateQuoteHours(values.projectHours, values.startDate, values.endDate),
     updatedAt: new Date().toISOString().slice(0, 10)
   };
   const existingIndex = contracts.findIndex(item => item.id === record.id);
@@ -399,11 +534,13 @@ async function importFile(file) {
     currentFilter = 'all';
     document.getElementById('statusFilter').value = 'all';
     document.getElementById('searchInput').value = '';
+    populateCompanies();
+    document.getElementById('companyFilter').value = 'all';
     document.getElementById('monthFilter').value = 'all';
     updateListTitle();
     renderAll();
     switchView('overview');
-    const pending = imported.filter(item => item.status === 'pending_quote').length;
+    const pending = imported.filter(needsQuote).length;
     showToast(`已匯入 ${imported.length} 筆，待報價 ${pending} 筆`);
   } catch (error) {
     console.error(error);
@@ -446,6 +583,8 @@ async function parseXlsx(file) {
     const quoteNo = cellText(cellAt(row, ['狀態更新', '報價單號']));
     const note = cellText(cellAt(row, ['追蹤進度', '備註']));
     const lastInvoiceDate = toISODate(cellAt(row, ['最近一次實際開票日'])?.value || cellText(cellAt(row, ['最近一次實際開票日'])));
+    const projectHours = numericValue(cellAt(row, ['專案時數']));
+    const startDate = deriveStartDate(endDate);
     const rowCells = row.slice(0, 15);
     output.push({
       id: stableId(account, contract, endDate),
@@ -454,8 +593,10 @@ async function parseXlsx(file) {
       amount: numericValue(cellAt(row, ['合約金額(未稅)'])),
       taxAmount: numericValue(cellAt(row, ['合約金額(含稅)'])),
       cost: numericValue(cellAt(row, ['成本(含稅)'])),
-      projectHours: numericValue(cellAt(row, ['專案時數'])),
-      startDate: deriveStartDate(endDate),
+      projectHours,
+      quoteType: projectHours > 0 ? 'hours' : 'cash',
+      quoteHours: calculateQuoteHours(projectHours, startDate, endDate),
+      startDate,
       endDate,
       lastInvoiceDate,
       quoteNo,
@@ -607,13 +748,17 @@ async function parseCsvFile(file) {
     const lastInvoiceDate = toISODate(valueAt(row, ['最近一次實際開票日']));
     const contractCell = { font: {} };
     const rowCells = [];
+    const projectHours = Number(valueAt(row, ['專案時數']).replace(/[,\s]/g, '')) || 0;
+    const startDate = deriveStartDate(endDate);
     return {
       id: stableId(account, contract, endDate || index), account, contract,
       amount: Number(valueAt(row, ['合約金額(未稅)']).replace(/[$,\s]/g, '')) || 0,
       taxAmount: Number(valueAt(row, ['合約金額(含稅)']).replace(/[$,\s]/g, '')) || 0,
       cost: Number(valueAt(row, ['成本(含稅)']).replace(/[$,\s]/g, '')) || 0,
-      projectHours: Number(valueAt(row, ['專案時數']).replace(/[,\s]/g, '')) || 0,
-      startDate: deriveStartDate(endDate), endDate, lastInvoiceDate, quoteNo,
+      projectHours,
+      quoteType: projectHours > 0 ? 'hours' : 'cash',
+      quoteHours: calculateQuoteHours(projectHours, startDate, endDate),
+      startDate, endDate, lastInvoiceDate, quoteNo,
       status: inferStatus({ contractCell, rowCells, quoteNo, note, lastInvoiceDate }),
       dealType: valueAt(row, ['成交類型']) || '維護保固', note,
       updatedAt: new Date().toISOString().slice(0, 10)
@@ -657,8 +802,8 @@ function restoreBackup() {
 }
 
 function exportCSV() {
-  const headers = ['帳戶名稱', '契約名稱', '未稅金額', '含稅金額', '合約起日', '合約截止日', '工作狀態', '報價單號', '最近開票日', '追蹤進度'];
-  const rows = contracts.map(item => [item.account, item.contract, item.amount, item.taxAmount, item.startDate, item.endDate, statusMeta[item.status].label, item.quoteNo, item.lastInvoiceDate, item.note]);
+  const headers = ['帳戶名稱', '契約名稱', '報價類型', '未稅金額', '含稅金額', '原有專案時數', '本次報價時數', '合約起日', '合約截止日', '工作狀態', '報價單號', '最近開票日', '追蹤進度'];
+  const rows = contracts.map(item => [item.account, item.contract, item.quoteType === 'hours' ? '時數' : '現金', item.amount, item.taxAmount, item.projectHours, item.quoteHours, item.startDate, item.endDate, statusMeta[effectiveStatus(item)].label, item.quoteNo, item.lastInvoiceDate, item.note]);
   const csv = '\ufeff' + [headers, ...rows].map(row => row.map(value => `"${String(value ?? '').replaceAll('"', '""')}"`).join(',')).join('\n');
   const link = document.createElement('a');
   link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -669,3 +814,4 @@ function exportCSV() {
 }
 
 init();
+
