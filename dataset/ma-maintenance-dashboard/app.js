@@ -70,15 +70,24 @@ function addMonths(date, months) {
   return result;
 }
 
+function addDays(date, days) {
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  return result;
+}
+
 function hasEstablishedQuote(item) {
   if (['pending_signature', 'completed'].includes(item.status)) return true;
   return /SF[-－]|已報價|報價已|等待.*回簽|簽呈/.test(`${item.quoteNo || ''} ${item.note || ''}`);
 }
 
+function isQuoteCandidate(item) {
+  return Boolean(parseLocalDate(item.endDate) && item.status !== 'completed' && !hasEstablishedQuote(item));
+}
+
 function needsQuote(item) {
   const endDate = parseLocalDate(item.endDate);
-  if (!endDate || item.status === 'completed' || hasEstablishedQuote(item)) return false;
-  return endDate <= addMonths(localToday(), QUOTE_WINDOW_MONTHS);
+  return Boolean(isQuoteCandidate(item) && endDate && endDate <= addMonths(localToday(), QUOTE_WINDOW_MONTHS));
 }
 
 function effectiveStatus(item) {
@@ -99,6 +108,23 @@ function deadlineMessage(item) {
   if (days === 0) return '今日到期';
   if (days <= 31) return `剩餘 ${days} 天`;
   return '';
+}
+
+function matchesExpiryPreset(item, preset, customStart = '', customEnd = '') {
+  const endDate = parseLocalDate(item.endDate);
+  if (!endDate || preset === 'all') return preset === 'all';
+  const today = localToday();
+  if (preset === 'quote_window') return endDate <= addMonths(today, QUOTE_WINDOW_MONTHS);
+  if (preset === 'overdue') return endDate < today;
+  if (preset === 'next_30') return endDate >= today && endDate <= addDays(today, 30);
+  if (preset === 'days_31_90') return endDate > addDays(today, 30) && endDate <= addDays(today, 90);
+  if (preset === 'next_90') return endDate >= today && endDate <= addMonths(today, QUOTE_WINDOW_MONTHS);
+  if (preset === 'custom') {
+    const start = parseLocalDate(customStart);
+    const end = parseLocalDate(customEnd);
+    return (!start || endDate >= start) && (!end || endDate <= end);
+  }
+  return true;
 }
 
 function contractMonthCount(startDate, endDate) {
@@ -258,7 +284,7 @@ function init() {
 
 function bindEvents() {
   document.querySelectorAll('.nav-item').forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.view)));
-  document.getElementById('viewAllBtn').addEventListener('click', () => { currentFilter = 'all'; document.getElementById('statusFilter').value = 'all'; document.getElementById('companyFilter').value = 'all'; switchView('contracts'); });
+  document.getElementById('viewAllBtn').addEventListener('click', () => { resetFilters(true); switchView('contracts'); });
   document.querySelectorAll('[data-filter-jump]').forEach(card => {
     const jump = () => jumpToFilter(card.dataset.filterJump);
     card.addEventListener('click', jump);
@@ -269,9 +295,14 @@ function bindEvents() {
   document.getElementById('cancelDialogBtn').addEventListener('click', closeDialog);
   document.getElementById('contractForm').addEventListener('submit', saveForm);
   document.getElementById('searchInput').addEventListener('input', renderTable);
-  document.getElementById('statusFilter').addEventListener('change', event => { currentFilter = event.target.value; renderTable(); updateListTitle(); });
+  document.getElementById('statusFilter').addEventListener('change', handleStatusFilterChange);
   document.getElementById('companyFilter').addEventListener('change', renderTable);
+  document.getElementById('expiryPresetFilter').addEventListener('change', handleExpiryPresetChange);
+  document.getElementById('expiryStartDate').addEventListener('change', renderTable);
+  document.getElementById('expiryEndDate').addEventListener('change', renderTable);
   document.getElementById('monthFilter').addEventListener('change', renderTable);
+  document.getElementById('resetFiltersBtn').addEventListener('click', () => resetFilters(false));
+  document.querySelectorAll('[data-expiry-preset]').forEach(button => button.addEventListener('click', () => setExpiryPreset(button.dataset.expiryPreset)));
   document.getElementById('quoteType').addEventListener('change', updateQuoteFields);
   ['projectHours', 'startDate', 'endDate'].forEach(name => document.getElementById('contractForm').elements[name].addEventListener('input', updateQuoteHours));
   document.getElementById('exportBtn').addEventListener('click', exportCSV);
@@ -307,14 +338,54 @@ function jumpToFilter(filter) {
   document.getElementById('searchInput').value = '';
   document.getElementById('companyFilter').value = 'all';
   document.getElementById('monthFilter').value = 'all';
+  setExpiryPreset(filter === 'pending_quote' ? 'quote_window' : 'all', false);
   updateListTitle();
   switchView('contracts');
+}
+
+function handleStatusFilterChange(event) {
+  currentFilter = event.target.value;
+  setExpiryPreset(currentFilter === 'pending_quote' ? 'quote_window' : 'all', false);
+  updateListTitle();
+  renderTable();
+}
+
+function handleExpiryPresetChange() {
+  const custom = document.getElementById('expiryPresetFilter').value === 'custom';
+  document.getElementById('expiryStartLabel').hidden = !custom;
+  document.getElementById('expiryEndLabel').hidden = !custom;
+  updateListTitle();
+  renderTable();
+}
+
+function setExpiryPreset(preset, shouldRender = true) {
+  document.getElementById('expiryPresetFilter').value = preset;
+  handleExpiryPresetChange();
+  if (!shouldRender) return;
+  updateListTitle();
+}
+
+function resetFilters(clearStatus = false) {
+  if (clearStatus) {
+    currentFilter = 'all';
+    document.getElementById('statusFilter').value = 'all';
+  } else currentFilter = document.getElementById('statusFilter').value;
+  document.getElementById('searchInput').value = '';
+  document.getElementById('companyFilter').value = 'all';
+  document.getElementById('monthFilter').value = 'all';
+  document.getElementById('expiryStartDate').value = '';
+  document.getElementById('expiryEndDate').value = '';
+  setExpiryPreset(currentFilter === 'pending_quote' ? 'quote_window' : 'all', false);
+  updateListTitle();
+  renderTable();
 }
 
 function updateListTitle() {
   const meta = statusMeta[currentFilter];
   document.getElementById('contractListTitle').textContent = meta ? `${meta.label}明細` : '全部合約';
-  document.getElementById('contractListSubtitle').textContent = currentFilter === 'pending_quote' ? '今日起三個月內到期且尚未報價；一個月內或逾期以紅字顯示。' : currentFilter === 'pending_signature' ? '報價已送出、等待客戶回簽的合約。' : '管理報價、回簽與維護期間。';
+  const expirySelect = document.getElementById('expiryPresetFilter');
+  const expiryLabel = expirySelect?.selectedOptions?.[0]?.textContent || '已逾期＋未來 3 個月';
+  document.getElementById('contractListSubtitle').textContent = currentFilter === 'pending_quote' ? `顯示「${expiryLabel}」內尚未報價的客戶；一個月內或逾期以紅字顯示。` : currentFilter === 'pending_signature' ? '報價已送出、等待客戶回簽的合約。' : '管理報價、回簽與維護期間。';
 }
 
 function renderAll() {
@@ -399,6 +470,23 @@ function populateCompanies() {
   select.value = companies.includes(selected) ? selected : 'all';
 }
 
+function renderQuoteWindowSummary() {
+  const panel = document.getElementById('quoteWindowSummary');
+  const visible = document.getElementById('statusFilter').value === 'pending_quote';
+  panel.hidden = !visible;
+  const candidates = contracts.filter(isQuoteCandidate);
+  const today = localToday();
+  const inRange = (item, start, end) => {
+    const date = parseLocalDate(item.endDate);
+    return Boolean(date && date >= start && date <= end);
+  };
+  document.getElementById('overdueQuoteCount').textContent = candidates.filter(item => parseLocalDate(item.endDate) < today).length;
+  document.getElementById('next30QuoteCount').textContent = candidates.filter(item => inRange(item, today, addDays(today, 30))).length;
+  document.getElementById('next90QuoteCount').textContent = candidates.filter(item => inRange(item, addDays(today, 31), addDays(today, 90))).length;
+  const preset = document.getElementById('expiryPresetFilter').value;
+  panel.querySelectorAll('[data-expiry-preset]').forEach(button => button.classList.toggle('active', button.dataset.expiryPreset === preset));
+}
+
 function pricingSummary(item) {
   if (item.quoteType === 'hours') {
     const quoteHours = item.quoteHours == null ? calculateQuoteHours(item.projectHours, item.startDate, item.endDate) : Number(item.quoteHours || 0);
@@ -411,18 +499,22 @@ function renderTable() {
   const query = document.getElementById('searchInput').value.trim().toLowerCase();
   const status = document.getElementById('statusFilter').value;
   const company = document.getElementById('companyFilter').value;
+  const expiryPreset = document.getElementById('expiryPresetFilter').value;
+  const expiryStart = document.getElementById('expiryStartDate').value;
+  const expiryEnd = document.getElementById('expiryEndDate').value;
   const month = document.getElementById('monthFilter').value;
   const filtered = contracts.filter(item => {
     const matchQuery = !query || [item.account, item.contract, item.quoteNo, item.note].some(value => String(value || '').toLowerCase().includes(query));
-    const matchStatus = status === 'all' || effectiveStatus(item) === status;
+    const matchStatus = status === 'all' || (status === 'pending_quote' ? isQuoteCandidate(item) : effectiveStatus(item) === status);
     const matchCompany = company === 'all' || item.account === company;
     const matchMonth = month === 'all' || Number(item.endDate?.split('-')[1]) === Number(month);
-    return matchQuery && matchStatus && matchCompany && matchMonth;
+    const matchExpiry = matchesExpiryPreset(item, expiryPreset, expiryStart, expiryEnd);
+    return matchQuery && matchStatus && matchCompany && matchMonth && matchExpiry;
   }).sort((a, b) => a.endDate.localeCompare(b.endDate));
 
   document.getElementById('visibleCount').textContent = filtered.length;
   document.getElementById('contractTableBody').innerHTML = filtered.map(item => `<tr class="${isDeadlineCritical(item) ? 'deadline-critical' : ''}">
-    <td>${statusPill(effectiveStatus(item))}</td>
+    <td>${statusPill(status === 'pending_quote' && isQuoteCandidate(item) ? 'pending_quote' : effectiveStatus(item))}</td>
     <td class="table-account ${isDeadlineCritical(item) ? 'urgent' : ''}"><b>${escapeHTML(item.account)}</b><span>${escapeHTML(item.contract)}</span></td>
     <td>${pricingSummary(item)}</td>
     <td class="date-range"><span>${formatDate(item.startDate)}</span><span>至 ${formatDate(item.endDate)}</span>${deadlineMessage(item) ? `<span class="deadline-note">${escapeHTML(deadlineMessage(item))}</span>` : ''}</td>
@@ -431,6 +523,7 @@ function renderTable() {
     <td><button class="row-action" data-edit-id="${item.id}" aria-label="編輯 ${escapeHTML(item.account)}">${icons.edit}</button></td>
   </tr>`).join('');
   document.getElementById('emptyState').classList.toggle('show', filtered.length === 0);
+  renderQuoteWindowSummary();
   bindEditButtons(document.getElementById('contractTableBody'));
 }
 
@@ -537,6 +630,11 @@ async function importFile(file) {
     populateCompanies();
     document.getElementById('companyFilter').value = 'all';
     document.getElementById('monthFilter').value = 'all';
+    document.getElementById('expiryPresetFilter').value = 'all';
+    document.getElementById('expiryStartDate').value = '';
+    document.getElementById('expiryEndDate').value = '';
+    document.getElementById('expiryStartLabel').hidden = true;
+    document.getElementById('expiryEndLabel').hidden = true;
     updateListTitle();
     renderAll();
     switchView('overview');
