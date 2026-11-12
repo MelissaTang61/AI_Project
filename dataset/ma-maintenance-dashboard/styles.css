@@ -122,9 +122,13 @@ h1 { margin-bottom: 8px; font-size: clamp(27px, 3vw, 38px); line-height: 1.22; l
 .account-cell, .contract-cell { min-width: 0; }
 .account-cell b, .contract-cell b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .account-cell small, .contract-cell small { display: block; margin-top: 4px; color: var(--muted); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.contract-cell.urgent b { color: var(--red); }
+.contract-cell.urgent b, .deadline-critical b, .deadline-critical span, .deadline-critical small { color: var(--red) !important; }
+.deadline-note { display: inline-flex !important; width: fit-content; margin-top: 4px; padding: 3px 6px; border-radius: 5px; color: #8e2f2c !important; background: var(--red-bg); font-size: 8px; font-weight: 700; }
 .amount-cell b { display: block; font-size: 11px; }
 .amount-cell small { color: var(--muted); font-size: 9px; }
+.quote-type { display: inline-flex; align-items: center; margin-bottom: 5px; padding: 3px 7px; border-radius: 20px; color: var(--forest); background: var(--mint); font-size: 8px; font-weight: 700; }
+.quote-hours { display: block; color: var(--ink); font-size: 10px; font-weight: 700; }
+.quote-hours small { display: block; margin-top: 3px; color: var(--muted); font-size: 8px; font-weight: 500; }
 .status-pill { justify-self: start; display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border-radius: 30px; white-space: nowrap; font-size: 9px; font-weight: 700; }
 .status-pill::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .pending-quote { color: var(--red); background: var(--red-bg); }
@@ -154,7 +158,8 @@ h1 { margin-bottom: 8px; font-size: clamp(27px, 3vw, 38px); line-height: 1.22; l
 .search-box { height: 40px; width: min(390px, 46%); padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; display: flex; align-items: center; gap: 8px; background: #fafaf7; }
 .search-box svg { width: 15px; color: #82908b; }
 .search-box input { width: 100%; border: 0; outline: 0; background: transparent; font-size: 11px; color: var(--ink); }
-.filter-group { display: flex; gap: 8px; }
+.filter-group { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.filter-group select { max-width: 210px; }
 select { border: 1px solid var(--line); border-radius: 10px; background: #fafaf7; color: #52645e; padding: 0 31px 0 11px; font-size: 10px; outline: none; }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; min-width: 950px; border-collapse: collapse; }
@@ -187,6 +192,8 @@ dialog::backdrop { background: rgba(13,37,31,.48); backdrop-filter: blur(3px); }
 .form-grid input, .form-grid select, .form-grid textarea { width: 100%; border: 1px solid #dfe3dc; border-radius: 9px; padding: 10px 11px; color: var(--ink); background: #fbfbf8; outline: none; font-size: 11px; resize: vertical; }
 .form-grid select { min-height: 39px; }
 .form-grid input:focus, .form-grid select:focus, .form-grid textarea:focus { border-color: #6b998b; box-shadow: 0 0 0 3px rgba(107,153,139,.12); }
+.form-grid input[readonly] { color: var(--forest); background: #edf5f1; font-weight: 700; }
+.form-grid label > small { margin-top: -2px; color: var(--muted); font-size: 8px; font-weight: 500; line-height: 1.45; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 24px; }
 .toast { position: fixed; z-index: 50; left: 50%; bottom: 28px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none; padding: 11px 16px; border-radius: 10px; color: white; background: #183f35; box-shadow: 0 12px 28px rgba(20,54,45,.23); display: flex; align-items: center; gap: 8px; font-size: 11px; transition: .25s ease; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
@@ -232,6 +239,7 @@ dialog::backdrop { background: rgba(13,37,31,.48); backdrop-filter: blur(3px); }
   .priority-item .contract-cell, .priority-item .amount-cell { display: none; }
   .table-toolbar { flex-direction: column; }
   .search-box { width: 100%; }
+  .filter-group { justify-content: stretch; }
   .filter-group select { min-height: 39px; flex: 1; }
   .contract-heading { flex-direction: row; }
   .form-grid { grid-template-columns: 1fr; }
@@ -242,3 +250,4 @@ dialog::backdrop { background: rgba(13,37,31,.48); backdrop-filter: blur(3px); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }
+
