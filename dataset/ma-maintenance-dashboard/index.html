@@ -73,7 +73,7 @@
                 <span class="metric-arrow" data-icon="arrow"></span>
               </div>
               <div class="metric-main">
-                <div><button class="metric-number" id="pendingQuoteCount">0</button><span class="unit">件</span><p>今日起三個月內到期，尚未建立報價</p></div>
+                <div><button class="metric-number" id="pendingQuoteCount">0</button><span class="unit">件</span><p>已逾期＋今日起三個月內，尚未建立報價</p></div>
                 <div class="ring" id="quoteRing"><span id="quotePercent">0%</span></div>
               </div>
               <div class="progress-row"><span>報價完成度</span><b id="quoteProgressText">0 / 0</b></div>
@@ -126,6 +126,12 @@
           </div>
 
           <section class="panel table-panel">
+            <div class="quote-window-summary" id="quoteWindowSummary" hidden>
+              <div class="summary-copy"><b>待報價到期分布</b><span>預設包含所有已逾期案件與未來三個月內到期案件</span></div>
+              <button type="button" data-expiry-preset="overdue"><b id="overdueQuoteCount">0</b><span>已逾期</span></button>
+              <button type="button" data-expiry-preset="next_30"><b id="next30QuoteCount">0</b><span>未來 30 天</span></button>
+              <button type="button" data-expiry-preset="days_31_90"><b id="next90QuoteCount">0</b><span>31–90 天</span></button>
+            </div>
             <div class="table-toolbar">
               <label class="search-box"><span data-icon="search"></span><input id="searchInput" type="search" placeholder="搜尋客戶、契約或報價單號" /></label>
               <div class="filter-group">
@@ -137,7 +143,19 @@
                   <option value="tracking">持續追蹤</option>
                 </select>
                 <select id="companyFilter" aria-label="篩選公司"><option value="all">所有公司</option></select>
+                <select id="expiryPresetFilter" aria-label="篩選保固到期時間">
+                  <option value="all">所有到期時間</option>
+                  <option value="quote_window">已逾期＋未來 3 個月</option>
+                  <option value="overdue">今日以前（已逾期）</option>
+                  <option value="next_30">未來 30 天</option>
+                  <option value="days_31_90">未來 31–90 天</option>
+                  <option value="next_90">今日起未來 3 個月</option>
+                  <option value="custom">自訂日期區間</option>
+                </select>
                 <select id="monthFilter" aria-label="篩選到期月份"><option value="all">所有月份</option></select>
+                <label class="date-filter" id="expiryStartLabel" hidden><span>到期日起</span><input id="expiryStartDate" type="date" /></label>
+                <label class="date-filter" id="expiryEndLabel" hidden><span>到期日止</span><input id="expiryEndDate" type="date" /></label>
+                <button type="button" class="filter-reset" id="resetFiltersBtn">清除篩選</button>
               </div>
             </div>
             <div class="table-wrap">
