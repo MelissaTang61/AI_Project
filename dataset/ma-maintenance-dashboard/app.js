@@ -413,17 +413,15 @@ async function importFile(file) {
 }
 
 async function parseXlsx(file) {
-  if (!window.ExcelJS) throw new Error('Excel 解析元件尚未載入，請重新整理後再試');
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(await file.arrayBuffer());
+  const workbook = await readXlsxWorkbook(await file.arrayBuffer());
   let matched = null;
-  workbook.eachSheet(worksheet => {
+  workbook.sheets.forEach(worksheet => {
     if (matched) return;
-    const limit = Math.min(worksheet.actualRowCount || worksheet.rowCount, 15);
+    const limit = Math.min(worksheet.rows.length, 15);
     for (let rowNumber = 1; rowNumber <= limit; rowNumber += 1) {
-      const row = worksheet.getRow(rowNumber);
+      const row = worksheet.rows[rowNumber - 1] || [];
       const headers = new Map();
-      row.eachCell({ includeEmpty: true }, (cell, column) => headers.set(normalizeHeader(cellText(cell)), column));
+      row.forEach((cell, column) => headers.set(normalizeHeader(cellText(cell)), column));
       if (headers.has('帳戶名稱') && headers.has('契約名稱') && headers.has('合約截止日')) {
         matched = { worksheet, headerRow: rowNumber, headers };
         break;
@@ -434,11 +432,11 @@ async function parseXlsx(file) {
   const { worksheet, headerRow, headers } = matched;
   const cellAt = (row, aliases) => {
     const key = aliases.find(alias => headers.has(normalizeHeader(alias)));
-    return key ? row.getCell(headers.get(normalizeHeader(key))) : null;
+    return key ? row[headers.get(normalizeHeader(key))] : null;
   };
   const output = [];
-  for (let rowNumber = headerRow + 1; rowNumber <= (worksheet.actualRowCount || worksheet.rowCount); rowNumber += 1) {
-    const row = worksheet.getRow(rowNumber);
+  for (let rowNumber = headerRow + 1; rowNumber <= worksheet.rows.length; rowNumber += 1) {
+    const row = worksheet.rows[rowNumber - 1] || [];
     const account = cellText(cellAt(row, ['帳戶名稱']));
     const contractCell = cellAt(row, ['契約名稱']);
     const contract = cellText(contractCell);
@@ -448,7 +446,7 @@ async function parseXlsx(file) {
     const quoteNo = cellText(cellAt(row, ['狀態更新', '報價單號']));
     const note = cellText(cellAt(row, ['追蹤進度', '備註']));
     const lastInvoiceDate = toISODate(cellAt(row, ['最近一次實際開票日'])?.value || cellText(cellAt(row, ['最近一次實際開票日'])));
-    const rowCells = Array.from({ length: Math.min(worksheet.actualColumnCount || worksheet.columnCount, 15) }, (_, index) => row.getCell(index + 1));
+    const rowCells = row.slice(0, 15);
     output.push({
       id: stableId(account, contract, endDate),
       account,
@@ -468,6 +466,123 @@ async function parseXlsx(file) {
     });
   }
   return output;
+}
+
+async function readXlsxWorkbook(arrayBuffer) {
+  const archive = await unzipXlsx(arrayBuffer);
+  const parseXml = path => {
+    const text = archive.get(path);
+    if (!text) return null;
+    const xml = new DOMParser().parseFromString(text, 'application/xml');
+    if (xml.getElementsByTagName('parsererror').length) throw new Error(`Excel XML 解析失敗：${path}`);
+    return xml;
+  };
+  const workbookXml = parseXml('xl/workbook.xml');
+  const relsXml = parseXml('xl/_rels/workbook.xml.rels');
+  if (!workbookXml || !relsXml) throw new Error('這不是有效的 Excel 活頁簿');
+
+  const relationships = new Map(Array.from(relsXml.getElementsByTagName('Relationship')).map(node => [node.getAttribute('Id'), normalizeXlsxPath(node.getAttribute('Target'))]));
+  const sharedXml = parseXml('xl/sharedStrings.xml');
+  const sharedStrings = sharedXml ? Array.from(sharedXml.getElementsByTagName('si')).map(node => Array.from(node.getElementsByTagName('t')).map(textNode => textNode.textContent || '').join('')) : [];
+  const styles = readXlsxStyles(parseXml('xl/styles.xml'));
+  const sheets = [];
+
+  for (const node of Array.from(workbookXml.getElementsByTagName('sheet'))) {
+    const relId = node.getAttribute('r:id');
+    const path = relationships.get(relId);
+    const xml = path ? parseXml(path) : null;
+    if (!xml) continue;
+    const rows = [];
+    for (const rowNode of Array.from(xml.getElementsByTagName('row'))) {
+      const rowNumber = Number(rowNode.getAttribute('r')) || rows.length + 1;
+      const row = [];
+      for (const cellNode of Array.from(rowNode.getElementsByTagName('c'))) {
+        const reference = cellNode.getAttribute('r') || '';
+        const column = xlsxColumnIndex(reference);
+        const type = cellNode.getAttribute('t') || 'n';
+        const styleIndex = Number(cellNode.getAttribute('s') || 0);
+        const valueNode = cellNode.getElementsByTagName('v')[0];
+        let value = valueNode?.textContent ?? '';
+        if (type === 's') value = sharedStrings[Number(value)] ?? '';
+        else if (type === 'inlineStr') value = Array.from(cellNode.getElementsByTagName('t')).map(textNode => textNode.textContent || '').join('');
+        else if (type === 'b') value = value === '1';
+        else if (type === 'n' && value !== '' && Number.isFinite(Number(value))) value = Number(value);
+        const style = styles[styleIndex] || {};
+        row[column] = {
+          value,
+          text: value == null ? '' : String(value),
+          font: style.fontColor ? { color: { argb: style.fontColor } } : {},
+          fill: style.fillColor ? { fgColor: { argb: style.fillColor } } : {}
+        };
+      }
+      rows[rowNumber - 1] = row;
+    }
+    sheets.push({ name: node.getAttribute('name') || `工作表 ${sheets.length + 1}`, rows });
+  }
+  return { sheets };
+}
+
+function normalizeXlsxPath(target) {
+  const cleaned = String(target || '').replace(/\\/g, '/').replace(/^\//, '');
+  const full = cleaned.startsWith('xl/') ? cleaned : `xl/${cleaned}`;
+  const parts = [];
+  full.split('/').forEach(part => { if (part === '..') parts.pop(); else if (part !== '.') parts.push(part); });
+  return parts.join('/');
+}
+
+function readXlsxStyles(xml) {
+  if (!xml) return [];
+  const directChildren = (node, name) => node ? Array.from(node.children).filter(child => child.localName === name) : [];
+  const fontsNode = Array.from(xml.documentElement.children).find(node => node.localName === 'fonts');
+  const fillsNode = Array.from(xml.documentElement.children).find(node => node.localName === 'fills');
+  const xfsNode = Array.from(xml.documentElement.children).find(node => node.localName === 'cellXfs');
+  const fonts = directChildren(fontsNode, 'font').map(font => font.getElementsByTagName('color')[0]?.getAttribute('rgb') || '');
+  const fills = directChildren(fillsNode, 'fill').map(fill => fill.getElementsByTagName('fgColor')[0]?.getAttribute('rgb') || '');
+  return directChildren(xfsNode, 'xf').map(xf => ({ fontColor: fonts[Number(xf.getAttribute('fontId') || 0)] || '', fillColor: fills[Number(xf.getAttribute('fillId') || 0)] || '' }));
+}
+
+function xlsxColumnIndex(reference) {
+  const letters = String(reference).match(/^[A-Z]+/i)?.[0]?.toUpperCase() || 'A';
+  let value = 0;
+  for (const letter of letters) value = value * 26 + letter.charCodeAt(0) - 64;
+  return value - 1;
+}
+
+async function unzipXlsx(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const view = new DataView(arrayBuffer);
+  let eocd = -1;
+  for (let offset = bytes.length - 22; offset >= Math.max(0, bytes.length - 65557); offset -= 1) {
+    if (view.getUint32(offset, true) === 0x06054b50) { eocd = offset; break; }
+  }
+  if (eocd < 0) throw new Error('無法讀取 Excel 壓縮內容');
+  const entryCount = view.getUint16(eocd + 10, true);
+  let cursor = view.getUint32(eocd + 16, true);
+  const decoder = new TextDecoder('utf-8');
+  const files = new Map();
+  for (let index = 0; index < entryCount; index += 1) {
+    if (view.getUint32(cursor, true) !== 0x02014b50) throw new Error('Excel 檔案目錄損壞');
+    const method = view.getUint16(cursor + 10, true);
+    const compressedSize = view.getUint32(cursor + 20, true);
+    const nameLength = view.getUint16(cursor + 28, true);
+    const extraLength = view.getUint16(cursor + 30, true);
+    const commentLength = view.getUint16(cursor + 32, true);
+    const localOffset = view.getUint32(cursor + 42, true);
+    const name = decoder.decode(bytes.slice(cursor + 46, cursor + 46 + nameLength)).replace(/\\/g, '/');
+    const localNameLength = view.getUint16(localOffset + 26, true);
+    const localExtraLength = view.getUint16(localOffset + 28, true);
+    const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+    const compressed = bytes.slice(dataStart, dataStart + compressedSize);
+    let content;
+    if (method === 0) content = compressed;
+    else if (method === 8) {
+      const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      content = new Uint8Array(await new Response(stream).arrayBuffer());
+    } else throw new Error(`不支援的 Excel 壓縮格式：${method}`);
+    if (name.endsWith('.xml') || name.endsWith('.rels')) files.set(name, decoder.decode(content));
+    cursor += 46 + nameLength + extraLength + commentLength;
+  }
+  return files;
 }
 
 async function parseCsvFile(file) {
